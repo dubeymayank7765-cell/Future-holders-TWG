@@ -1,0 +1,2053 @@
+import React, { useState, useEffect, useCallback } from "react";
+
+// ---------- Constants ----------
+const FESTIVAL_DATES = ["05-10", "01-26", "08-15", "10-02", "12-25"]; // MM-DD — free premium for everyone on these dates
+const DEV_PASSWORD = "itsmayank";
+
+const LANG_LABELS = {
+  hi: { habits: "आदतें", timer: "Timer", journal: "Journal", books: "किताबें", stats: "आंकड़े", games: "खेल", settings: "Settings" },
+  en: { habits: "Habits", timer: "Timer", journal: "Journal", books: "Books", stats: "Stats", games: "Games", settings: "Settings" },
+};
+
+const THEME_COLORS = [
+  { name: "नारंगी", value: "#f08c00" },
+  { name: "नीला", value: "#1971c2" },
+  { name: "हरा", value: "#2f9e44" },
+  { name: "गुलाबी", value: "#c2255c" },
+  { name: "बैंगनी", value: "#7048e8" },
+  { name: "लाल", value: "#e03131" },
+];
+
+const MEDAL_TIERS = [
+  { id: "bronze", name: "Prime Bronze", amount: 1200, icon: "🥉" },
+  { id: "silver", name: "Prime Silver", amount: 2100, icon: "🥈" },
+  { id: "gold", name: "Prime Gold", amount: 3500, icon: "🥇" },
+  { id: "supreme", name: "Prime Supreme", amount: 6100, icon: "🏆" },
+];
+
+const HABIT_COLORS = [
+  { name: "हरा", value: "#2f9e44" },
+  { name: "नीला", value: "#1971c2" },
+  { name: "नारंगी", value: "#e8590c" },
+  { name: "गुलाबी", value: "#c2255c" },
+  { name: "बैंगनी", value: "#7048e8" },
+  { name: "पीला", value: "#f08c00" },
+];
+
+const DEFAULT_HABITS = [
+  { id: "h_exercise", name: "व्यायाम", color: "#2f9e44", icon: "🏃" },
+  { id: "h_water", name: "पानी पीना", color: "#1971c2", icon: "💧" },
+  { id: "h_study", name: "पढ़ाई", color: "#e8590c", icon: "📚" },
+  { id: "h_sleep", name: "समय पर सोना", color: "#7048e8", icon: "🌙" },
+];
+
+const GAME_CATEGORIES = [
+  { id: "all", label: "सभी", icon: "🎮" },
+  { id: "logic", label: "Logic", icon: "🧠" },
+  { id: "memory", label: "Memory", icon: "🔴" },
+  { id: "puzzle", label: "Puzzle", icon: "🧩" },
+  { id: "math", label: "Math", icon: "➗" },
+  { id: "word", label: "Word", icon: "🔤" },
+  { id: "reflex", label: "Reflex", icon: "⚡" },
+  { id: "friend", label: "दोस्त संग", icon: "👫" },
+];
+
+const PREMIUM_TIERS = [
+  { id: "platinum", name: "Platinum", price: "₹99", duration: "7 दिन", days: 7 },
+  { id: "gold", name: "Gold", price: "₹599", duration: "30 दिन", days: 30 },
+  { id: "diamond", name: "Diamond", price: "₹999", duration: "365 दिन", days: 365 },
+];
+
+// ---------- Date helpers ----------
+function toDateStr(d) {
+  return d.toISOString().split("T")[0];
+}
+function todayStr() {
+  return toDateStr(new Date());
+}
+function last365Days() {
+  const days = [];
+  const today = new Date();
+  for (let i = 364; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    days.push(toDateStr(d));
+  }
+  return days;
+}
+function calcStreak(completions) {
+  let streak = 0;
+  const d = new Date();
+  while (true) {
+    const key = toDateStr(d);
+    if (completions[key]) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// ---------- Storage helpers ----------
+async function loadState(key, fallback) {
+  try {
+    const res = await window.storage.get(key, false);
+    return res ? JSON.parse(res.value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+async function saveState(key, value) {
+  try {
+    await window.storage.set(key, JSON.stringify(value), false);
+  } catch (e) {
+    console.error("Save failed", e);
+  }
+}
+
+function isFestivalToday() {
+  const mmdd = todayStr().slice(5);
+  return FESTIVAL_DATES.includes(mmdd);
+}
+
+const STREAK_ACHIEVEMENTS = [
+  { days: 7, name: "1 हफ्ता", icon: "🌱" },
+  { days: 30, name: "1 महीना", icon: "🌿" },
+  { days: 100, name: "100 दिन", icon: "🌳" },
+  { days: 365, name: "1 साल", icon: "👑" },
+];
+
+const AVATARS = ["🦁", "🐯", "🦊", "🐼", "🐨", "🦉", "🐺", "🦅", "🐸", "🐵", "🚀", "⚡"];
+
+const QUOTES = [
+  "छोटी शुरुआत करो, बड़ा सोचो।",
+  "आज की मेहनत कल की सफलता है।",
+  "रुको मत, हार मत मानो।",
+  "हर दिन एक नया मौका है खुद को बेहतर बनाने का।",
+  "अनुशासन ही असली आज़ादी है।",
+  "जो आज करना है, कल पर मत टालो।",
+  "छोटी आदतें, बड़ा बदलाव लाती हैं।",
+  "मेहनत कभी बेकार नहीं जाती।",
+];
+
+const BOOK_LIST = [
+  { id: "b1", title: "Wings of Fire", author: "A.P.J. Abdul Kalam", category: "जीवनी", icon: "🚀",
+    blurb: "भारत के मिसाइल मैन की खुद की कहानी — गरीब घर से वैज्ञानिक और राष्ट्रपति बनने तक का सफर।" },
+  { id: "b2", title: "Atomic Habits", author: "James Clear", category: "आदतें", icon: "⚛️",
+    blurb: "छोटी-छोटी रोज़ की आदतें कैसे बड़े बदलाव लाती हैं, इसे आसान तरीके से समझाती है।" },
+  { id: "b3", title: "The Alchemist", author: "Paulo Coelho", category: "कहानी", icon: "🐑",
+    blurb: "एक चरवाहे लड़के की अपने सपने को पाने की यात्रा, जीवन के गहरे सबक के साथ।" },
+  { id: "b4", title: "Ikigai", author: "Héctor García & Francesc Miralles", category: "जीवन-दर्शन", icon: "🌸",
+    blurb: "अपना असली मकसद (जिसे जीने का कारण कहते हैं) कैसे खोजें, जापानी सोच पर आधारित।" },
+  { id: "b5", title: "48 Laws of Power", author: "Robert Greene", category: "रणनीति", icon: "♟️",
+    blurb: "इतिहास की घटनाओं से सीखी गई शक्ति और रणनीति की बातें — बड़ों की सलाह के साथ पढ़ना बेहतर।" },
+  { id: "b6", title: "Rich Dad Poor Dad", author: "Robert Kiyosaki", category: "पैसा", icon: "💰",
+    blurb: "पैसे को समझने और सही तरीके से संभालने की आसान सोच सिखाती है।" },
+  { id: "b7", title: "Sapiens", author: "Yuval Noah Harari", category: "इतिहास", icon: "🌍",
+    blurb: "इंसानों की पूरी कहानी — पत्थर युग से आज तक — बहुत रोचक तरीके से बताई गई है।" },
+  { id: "b8", title: "Think and Grow Rich", author: "Napoleon Hill", category: "मोटिवेशन", icon: "💡",
+    blurb: "सफल लोगों की सोच के तरीके और लक्ष्य तक पहुँचने की मानसिकता पर आधारित क्लासिक किताब।" },
+  { id: "b9", title: "Deep Work", author: "Cal Newport", category: "फोकस", icon: "🎯",
+    blurb: "बिना डिस्ट्रैक्शन के गहरी एकाग्रता से पढ़ाई और काम करने की कला सिखाती है।" },
+  { id: "b10", title: "Man's Search for Meaning", author: "Viktor Frankl", category: "जीवन-दर्शन", icon: "🕊️",
+    blurb: "मुश्किल हालातों में भी ज़िंदगी में मतलब ढूंढने की एक गहरी और प्रेरक किताब।" },
+];
+
+// ==================== LOGO ====================
+function Logo({ size = 56 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="var(--accent)" strokeWidth="6" />
+      <circle cx="50" cy="50" r="30" fill="none" stroke="#1971c2" strokeWidth="6" />
+      <circle cx="50" cy="50" r="12" fill="var(--accent)" />
+      <path d="M50 4 L56 20 L44 20 Z" fill="#51cf66" />
+    </svg>
+  );
+}
+
+function calcLevel(totalCompletions) {
+  const xp = totalCompletions * 10;
+  const level = Math.floor(xp / 100) + 1;
+  const xpIntoLevel = xp % 100;
+  return { xp, level, xpIntoLevel };
+}
+
+// ==================== CREATOR ICON ====================
+function ThunderIcon({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 60 60">
+      <ellipse cx="30" cy="20" rx="20" ry="13" fill="#3a4570" />
+      <ellipse cx="18" cy="24" rx="12" ry="9" fill="#4a5680" />
+      <ellipse cx="42" cy="24" rx="12" ry="9" fill="#4a5680" />
+      <polygon points="33,22 22,40 29,40 25,55 42,32 34,32" fill="var(--accent)" />
+    </svg>
+  );
+}
+
+// ==================== SIGNUP ====================
+function SignupScreen({ onDone }) {
+  const [name, setName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [email, setEmail] = useState("");
+  const [avatar, setAvatar] = useState(AVATARS[0]);
+  const [error, setError] = useState("");
+
+  const submit = () => {
+    if (!name.trim()) {
+      setError("नाम डालिए");
+      return;
+    }
+    if (!/^\d{10}$/.test(mobile.trim())) {
+      setError("10 अंकों का मोबाइल नंबर डालिए");
+      return;
+    }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("सही email डालिए (या खाली छोड़ दें)");
+      return;
+    }
+    onDone({ name: name.trim(), mobile: mobile.trim(), email: email.trim(), avatar });
+  };
+
+  return (
+    <div style={styles.screen}>
+      <div style={{ textAlign: "center", marginTop: 60, marginBottom: 40 }}>
+        <div style={{ display: "flex", justifyContent: "center" }}><Logo size={64} /></div>
+        <h1 style={{ color: "#fff", fontSize: 28, margin: "12px 0 4px" }}>Future Holders TWG</h1>
+        <p style={{ color: "#a8b3cf", fontSize: 15 }}>अपनी आदतें बनाओ, अपना दिमाग बढ़ाओ</p>
+      </div>
+      <div style={styles.card}>
+        <label style={styles.label}>आपका नाम</label>
+        <input
+          style={styles.input}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="जैसे: रोहन"
+        />
+        <label style={styles.label}>मोबाइल नंबर</label>
+        <input
+          style={styles.input}
+          value={mobile}
+          onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          placeholder="10 अंकों का नंबर"
+          inputMode="numeric"
+        />
+        <label style={styles.label}>Email (वैकल्पिक)</label>
+        <input
+          style={styles.input}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          type="email"
+        />
+        <label style={styles.label}>Avatar चुनें</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          {AVATARS.map((a) => (
+            <button
+              key={a}
+              onClick={() => setAvatar(a)}
+              style={{
+                fontSize: 24,
+                padding: 8,
+                borderRadius: 10,
+                border: avatar === a ? "2px solid var(--accent)" : "2px solid transparent",
+                background: "rgba(255,255,255,0.06)",
+                cursor: "pointer",
+              }}
+            >
+              {a}
+            </button>
+          ))}
+        </div>
+        {error && <div style={{ color: "#ff8787", fontSize: 13, marginTop: 6 }}>{error}</div>}
+        <button style={styles.primaryBtn} onClick={submit}>
+          शुरू करें
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== HABIT GRID ====================
+function HabitGrid({ completions }) {
+  const days = last365Days();
+  const weeks = [];
+  for (let i = 0; i < days.length; i += 7) {
+    weeks.push(days.slice(i, i + 7));
+  }
+  return (
+    <div style={{ display: "flex", gap: 3, overflowX: "auto", padding: "8px 2px" }}>
+      {weeks.map((week, wi) => (
+        <div key={wi} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {week.map((day) => (
+            <div
+              key={day}
+              title={day}
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 2,
+                background: completions[day] ? "currentColor" : "rgba(255,255,255,0.08)",
+              }}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ==================== HABIT CARD ====================
+function HabitCard({ habit, completions, onToggleToday, onDelete }) {
+  const done = !!completions[todayStr()];
+  const streak = calcStreak(completions);
+  return (
+    <div style={{ ...styles.card, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 24 }}>{habit.icon}</span>
+          <div>
+            <div style={{ color: "#fff", fontWeight: 600, fontSize: 16 }}>{habit.name}</div>
+            <div style={{ color: habit.color, fontSize: 13, fontWeight: 600 }}>
+              🔥 {streak} दिन की streak
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => onToggleToday(habit.id)}
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            border: `2px solid ${habit.color}`,
+            background: done ? habit.color : "transparent",
+            color: "#fff",
+            fontSize: 20,
+            cursor: "pointer",
+          }}
+        >
+          {done ? "✓" : ""}
+        </button>
+      </div>
+      <div style={{ color: habit.color }}>
+        <HabitGrid completions={completions} />
+      </div>
+      <button
+        onClick={() => onDelete(habit.id)}
+        style={{ background: "none", border: "none", color: "#6b7590", fontSize: 12, cursor: "pointer", padding: 0 }}
+      >
+        हटाएँ
+      </button>
+    </div>
+  );
+}
+
+// ==================== ADD HABIT MODAL ====================
+function AddHabitModal({ onClose, onAdd }) {
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("⭐");
+  const [color, setColor] = useState(HABIT_COLORS[0].value);
+  const icons = ["⭐", "🏃", "💧", "📚", "🌙", "🥗", "🧘", "🎸", "🖊️", "🏋️"];
+
+  return (
+    <div style={styles.overlay}>
+      <div style={styles.modal}>
+        <h3 style={{ color: "#fff", marginTop: 0 }}>नई आदत जोड़ें</h3>
+        <label style={styles.label}>नाम</label>
+        <input style={styles.input} value={name} onChange={(e) => setName(e.target.value)} placeholder="जैसे: योगा" />
+        <label style={styles.label}>Icon चुनें</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+          {icons.map((ic) => (
+            <button
+              key={ic}
+              onClick={() => setIcon(ic)}
+              style={{
+                fontSize: 22,
+                padding: 8,
+                borderRadius: 8,
+                border: icon === ic ? "2px solid #fff" : "2px solid transparent",
+                background: "rgba(255,255,255,0.06)",
+                cursor: "pointer",
+              }}
+            >
+              {ic}
+            </button>
+          ))}
+        </div>
+        <label style={styles.label}>रंग चुनें</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+          {HABIT_COLORS.map((c) => (
+            <button
+              key={c.value}
+              onClick={() => setColor(c.value)}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: c.value,
+                border: color === c.value ? "3px solid #fff" : "3px solid transparent",
+                cursor: "pointer",
+              }}
+            />
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button style={styles.secondaryBtn} onClick={onClose}>रद्द करें</button>
+          <button
+            style={styles.primaryBtn}
+            onClick={() => {
+              if (!name.trim()) return;
+              onAdd({ id: "h_" + Date.now(), name: name.trim(), icon, color });
+              onClose();
+            }}
+          >
+            जोड़ें
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==================== MEMORY MATCH GAME ====================
+function MemoryGame() {
+  const emojis = ["🍎", "🚀", "🎈", "🎵", "⚽", "🌟", "🐱", "🍕"];
+  const [cards, setCards] = useState([]);
+  const [flipped, setFlipped] = useState([]);
+  const [matched, setMatched] = useState([]);
+  const [moves, setMoves] = useState(0);
+
+  const setup = useCallback(() => {
+    const deck = [...emojis, ...emojis]
+      .map((e, i) => ({ id: i, emoji: e }))
+      .sort(() => Math.random() - 0.5);
+    setCards(deck);
+    setFlipped([]);
+    setMatched([]);
+    setMoves(0);
+  }, []);
+
+  useEffect(() => {
+    setup();
+  }, [setup]);
+
+  const handleClick = (idx) => {
+    if (flipped.length === 2 || flipped.includes(idx) || matched.includes(idx)) return;
+    const newFlipped = [...flipped, idx];
+    setFlipped(newFlipped);
+    if (newFlipped.length === 2) {
+      setMoves((m) => m + 1);
+      const [a, b] = newFlipped;
+      if (cards[a].emoji === cards[b].emoji) {
+        setMatched((m) => [...m, a, b]);
+        setFlipped([]);
+      } else {
+        setTimeout(() => setFlipped([]), 700);
+      }
+    }
+  };
+
+  const won = matched.length === cards.length && cards.length > 0;
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>🧠 Memory Match</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>चालें: {moves}</span>
+      </div>
+      {won && <div style={{ color: "#51cf66", fontWeight: 700, margin: "8px 0" }}>🎉 बहुत बढ़िया! आपने जीत लिया!</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 10 }}>
+        {cards.map((c, idx) => {
+          const isVisible = flipped.includes(idx) || matched.includes(idx);
+          return (
+            <div
+              key={c.id}
+              onClick={() => handleClick(idx)}
+              style={{
+                aspectRatio: "1",
+                borderRadius: 10,
+                background: isVisible ? "#2b3557" : "#1a2140",
+                border: "1px solid #3a4570",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 26,
+                cursor: "pointer",
+              }}
+            >
+              {isVisible ? c.emoji : ""}
+            </div>
+          );
+        })}
+      </div>
+      <button style={{ ...styles.secondaryBtn, marginTop: 14 }} onClick={setup}>
+        फिर से खेलें
+      </button>
+    </div>
+  );
+}
+
+// ==================== SLIDING PUZZLE GAME ====================
+function shuffledPuzzle() {
+  let arr = [...Array(15).keys()].map((n) => n + 1).concat([0]);
+  // Shuffle by performing random valid moves so it's always solvable
+  for (let i = 0; i < 300; i++) {
+    const emptyIdx = arr.indexOf(0);
+    const row = Math.floor(emptyIdx / 4);
+    const col = emptyIdx % 4;
+    const moves = [];
+    if (row > 0) moves.push(emptyIdx - 4);
+    if (row < 3) moves.push(emptyIdx + 4);
+    if (col > 0) moves.push(emptyIdx - 1);
+    if (col < 3) moves.push(emptyIdx + 1);
+    const swapIdx = moves[Math.floor(Math.random() * moves.length)];
+    [arr[emptyIdx], arr[swapIdx]] = [arr[swapIdx], arr[emptyIdx]];
+  }
+  return arr;
+}
+
+function PuzzleGame() {
+  const [tiles, setTiles] = useState(shuffledPuzzle());
+  const [moveCount, setMoveCount] = useState(0);
+
+  const solved = tiles.slice(0, 15).every((v, i) => v === i + 1) && tiles[15] === 0;
+
+  const move = (idx) => {
+    if (solved) return;
+    const emptyIdx = tiles.indexOf(0);
+    const row = Math.floor(idx / 4), col = idx % 4;
+    const eRow = Math.floor(emptyIdx / 4), eCol = emptyIdx % 4;
+    const adjacent = (Math.abs(row - eRow) === 1 && col === eCol) || (Math.abs(col - eCol) === 1 && row === eRow);
+    if (adjacent) {
+      const newTiles = [...tiles];
+      [newTiles[idx], newTiles[emptyIdx]] = [newTiles[emptyIdx], newTiles[idx]];
+      setTiles(newTiles);
+      setMoveCount((m) => m + 1);
+    }
+  };
+
+  const reset = () => {
+    setTiles(shuffledPuzzle());
+    setMoveCount(0);
+  };
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>🧩 Sliding Puzzle</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>चालें: {moveCount}</span>
+      </div>
+      {solved && <div style={{ color: "#51cf66", fontWeight: 700, margin: "8px 0" }}>🎉 हल हो गया!</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 10, maxWidth: 280, margin: "10px auto" }}>
+        {tiles.map((val, idx) => (
+          <div
+            key={idx}
+            onClick={() => move(idx)}
+            style={{
+              aspectRatio: "1",
+              borderRadius: 8,
+              background: val === 0 ? "transparent" : "#e8590c",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 18,
+              cursor: val === 0 ? "default" : "pointer",
+            }}
+          >
+            {val !== 0 ? val : ""}
+          </div>
+        ))}
+      </div>
+      <button style={styles.secondaryBtn} onClick={reset}>
+        फिर से शुरू करें
+      </button>
+    </div>
+  );
+}
+
+// ==================== MATH BLITZ (Math IQ) ====================
+function genMathProblem(level) {
+  const ops = ["+", "-", "×"];
+  const op = ops[Math.floor(Math.random() * ops.length)];
+  let a, b, answer;
+  const max = level > 8 ? 50 : 20;
+  a = Math.floor(Math.random() * max) + 1;
+  b = Math.floor(Math.random() * max) + 1;
+  if (op === "+") answer = a + b;
+  else if (op === "-") {
+    if (b > a) [a, b] = [b, a];
+    answer = a - b;
+  } else {
+    a = Math.floor(Math.random() * 12) + 1;
+    b = Math.floor(Math.random() * 12) + 1;
+    answer = a * b;
+  }
+  return { text: `${a} ${op} ${b}`, answer };
+}
+
+function MathBlitzGame() {
+  const [problem, setProblem] = useState(() => genMathProblem(1));
+  const [input, setInput] = useState("");
+  const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [running, setRunning] = useState(false);
+  const [best, setBest] = useState(0);
+
+  useEffect(() => {
+    if (!running) return;
+    if (timeLeft <= 0) {
+      setRunning(false);
+      setBest((b) => Math.max(b, score));
+      return;
+    }
+    const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [running, timeLeft, score]);
+
+  const start = () => {
+    setScore(0);
+    setTimeLeft(30);
+    setInput("");
+    setProblem(genMathProblem(1));
+    setRunning(true);
+  };
+
+  const submit = () => {
+    if (!running) return;
+    if (parseInt(input, 10) === problem.answer) {
+      setScore((s) => s + 1);
+    }
+    setInput("");
+    setProblem(genMathProblem(score));
+  };
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>➗ Math Blitz</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>Best: {best}</span>
+      </div>
+      {!running ? (
+        <>
+          <p style={{ color: "#a8b3cf", fontSize: 13 }}>30 सेकंड में जितने ज्यादा सवाल हल कर सको करो!</p>
+          <button style={styles.primaryBtn} onClick={start}>शुरू करें</button>
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", margin: "12px 0" }}>
+            <span style={{ color: "var(--accent)", fontWeight: 700 }}>⏱ {timeLeft}s</span>
+            <span style={{ color: "#51cf66", fontWeight: 700 }}>स्कोर: {score}</span>
+          </div>
+          <div style={{ fontSize: 32, color: "#fff", textAlign: "center", margin: "20px 0", fontWeight: 700 }}>
+            {problem.text} = ?
+          </div>
+          <input
+            style={{ ...styles.input, textAlign: "center", fontSize: 20 }}
+            value={input}
+            onChange={(e) => setInput(e.target.value.replace(/[^\d-]/g, ""))}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            inputMode="numeric"
+            autoFocus
+          />
+          <button style={styles.primaryBtn} onClick={submit}>जवाब दें</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ==================== SEQUENCE MEMORY (Memory IQ) ====================
+function SequenceMemoryGame() {
+  const colors = [
+    { id: 0, bg: "#e03131" },
+    { id: 1, bg: "#2f9e44" },
+    { id: 2, bg: "#1971c2" },
+    { id: 3, bg: "var(--accent)" },
+  ];
+  const [sequence, setSequence] = useState([]);
+  const [userStep, setUserStep] = useState(0);
+  const [showing, setShowing] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const [level, setLevel] = useState(0);
+  const [status, setStatus] = useState("idle"); // idle | playing | over
+  const [best, setBest] = useState(0);
+
+  const playSequence = async (seq) => {
+    setShowing(true);
+    for (let i = 0; i < seq.length; i++) {
+      await new Promise((r) => setTimeout(r, 400));
+      setActiveIdx(seq[i]);
+      await new Promise((r) => setTimeout(r, 400));
+      setActiveIdx(-1);
+    }
+    setShowing(false);
+  };
+
+  const start = () => {
+    const first = [Math.floor(Math.random() * 4)];
+    setSequence(first);
+    setLevel(1);
+    setUserStep(0);
+    setStatus("playing");
+    playSequence(first);
+  };
+
+  const handleTap = (id) => {
+    if (showing || status !== "playing") return;
+    if (id === sequence[userStep]) {
+      if (userStep + 1 === sequence.length) {
+        const next = [...sequence, Math.floor(Math.random() * 4)];
+        setSequence(next);
+        setUserStep(0);
+        setLevel((l) => l + 1);
+        setTimeout(() => playSequence(next), 500);
+      } else {
+        setUserStep((s) => s + 1);
+      }
+    } else {
+      setStatus("over");
+      setBest((b) => Math.max(b, level));
+    }
+  };
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>🔴 Sequence Memory</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>Best level: {best}</span>
+      </div>
+      {status === "idle" && (
+        <>
+          <p style={{ color: "#a8b3cf", fontSize: 13 }}>Pattern याद रखो और वैसा ही दबाओ, हर बार लंबा होता जाएगा।</p>
+          <button style={styles.primaryBtn} onClick={start}>शुरू करें</button>
+        </>
+      )}
+      {status !== "idle" && (
+        <>
+          <div style={{ color: "#a8b3cf", textAlign: "center", margin: "10px 0" }}>Level: {level}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, maxWidth: 220, margin: "0 auto" }}>
+            {colors.map((c) => (
+              <div
+                key={c.id}
+                onClick={() => handleTap(c.id)}
+                style={{
+                  aspectRatio: "1",
+                  borderRadius: 12,
+                  background: c.bg,
+                  opacity: activeIdx === c.id ? 1 : 0.45,
+                  cursor: showing ? "default" : "pointer",
+                  transition: "opacity 0.15s",
+                }}
+              />
+            ))}
+          </div>
+          {status === "over" && (
+            <>
+              <div style={{ color: "#ff8787", textAlign: "center", margin: "12px 0" }}>Game Over! फिर कोशिश करो।</div>
+              <button style={styles.primaryBtn} onClick={start}>फिर से खेलें</button>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ==================== WORD SCRAMBLE (Language/Logic IQ) ====================
+function WordScrambleGame() {
+  const words = ["विद्यालय", "आकाश", "पर्वत", "नदी", "पुस्तक", "सूरज", "चंद्रमा", "जंगल", "समुद्र", "तितली"];
+  const scramble = (w) => {
+    const arr = w.split("");
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    const result = arr.join("");
+    return result === w ? scramble(w) : result;
+  };
+  const [word, setWord] = useState(words[0]);
+  const [scrambled, setScrambled] = useState(scramble(words[0]));
+  const [input, setInput] = useState("");
+  const [score, setScore] = useState(0);
+  const [msg, setMsg] = useState("");
+
+  const next = () => {
+    const w = words[Math.floor(Math.random() * words.length)];
+    setWord(w);
+    setScrambled(scramble(w));
+    setInput("");
+    setMsg("");
+  };
+
+  const check = () => {
+    if (input.trim() === word) {
+      setScore((s) => s + 1);
+      setMsg("✅ सही जवाब!");
+      setTimeout(next, 800);
+    } else {
+      setMsg("❌ फिर कोशिश करो");
+    }
+  };
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>🔤 Word Scramble</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>स्कोर: {score}</span>
+      </div>
+      <div style={{ fontSize: 30, color: "var(--accent)", textAlign: "center", letterSpacing: 4, margin: "20px 0", fontWeight: 700 }}>
+        {scrambled}
+      </div>
+      <input
+        style={{ ...styles.input, textAlign: "center" }}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && check()}
+        placeholder="सही शब्द लिखो"
+      />
+      {msg && <div style={{ textAlign: "center", margin: "8px 0", color: msg.startsWith("✅") ? "#51cf66" : "#ff8787" }}>{msg}</div>}
+      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+        <button style={styles.secondaryBtn} onClick={next}>Skip</button>
+        <button style={styles.primaryBtn} onClick={check}>जांचें</button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== LOGIC PATTERN (Logic IQ) ====================
+function genLogicProblem() {
+  const type = Math.floor(Math.random() * 2);
+  if (type === 0) {
+    // arithmetic sequence
+    const start = Math.floor(Math.random() * 10) + 1;
+    const step = Math.floor(Math.random() * 5) + 2;
+    const seq = [start, start + step, start + 2 * step, start + 3 * step];
+    return { seq, answer: start + 4 * step };
+  } else {
+    // multiply sequence
+    const start = Math.floor(Math.random() * 3) + 1;
+    const ratio = 2;
+    const seq = [start, start * ratio, start * ratio * ratio, start * ratio * ratio * ratio];
+    return { seq, answer: start * Math.pow(ratio, 4) };
+  }
+}
+
+function LogicPatternGame() {
+  const [problem, setProblem] = useState(genLogicProblem());
+  const [input, setInput] = useState("");
+  const [score, setScore] = useState(0);
+  const [msg, setMsg] = useState("");
+
+  const check = () => {
+    if (parseInt(input, 10) === problem.answer) {
+      setScore((s) => s + 1);
+      setMsg("✅ सही! अगला सवाल आ रहा है");
+      setTimeout(() => {
+        setProblem(genLogicProblem());
+        setInput("");
+        setMsg("");
+      }, 800);
+    } else {
+      setMsg("❌ फिर सोचो");
+    }
+  };
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>🧠 Logic Pattern</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>स्कोर: {score}</span>
+      </div>
+      <p style={{ color: "#a8b3cf", fontSize: 13 }}>अगली संख्या क्या होगी?</p>
+      <div style={{ fontSize: 26, color: "#fff", textAlign: "center", margin: "16px 0", fontWeight: 700 }}>
+        {problem.seq.join(", ")}, ?
+      </div>
+      <input
+        style={{ ...styles.input, textAlign: "center" }}
+        value={input}
+        onChange={(e) => setInput(e.target.value.replace(/[^\d]/g, ""))}
+        onKeyDown={(e) => e.key === "Enter" && check()}
+        inputMode="numeric"
+        placeholder="जवाब"
+      />
+      {msg && <div style={{ textAlign: "center", margin: "8px 0", color: msg.startsWith("✅") ? "#51cf66" : "#ff8787" }}>{msg}</div>}
+      <button style={styles.primaryBtn} onClick={check}>जांचें</button>
+    </div>
+  );
+}
+
+// ==================== REACTION TIME (Reflex IQ) ====================
+function ReactionTimeGame() {
+  const [state, setState] = useState("idle"); // idle | waiting | ready | result | tooSoon
+  const [startTime, setStartTime] = useState(0);
+  const [reaction, setReaction] = useState(null);
+  const [best, setBest] = useState(null);
+  const timeoutRef = React.useRef(null);
+
+  const start = () => {
+    setState("waiting");
+    const delay = 1500 + Math.random() * 2500;
+    timeoutRef.current = setTimeout(() => {
+      setStartTime(Date.now());
+      setState("ready");
+    }, delay);
+  };
+
+  const handleClick = () => {
+    if (state === "idle" || state === "result" || state === "tooSoon") {
+      start();
+    } else if (state === "waiting") {
+      clearTimeout(timeoutRef.current);
+      setState("tooSoon");
+    } else if (state === "ready") {
+      const rt = Date.now() - startTime;
+      setReaction(rt);
+      setBest((b) => (b === null ? rt : Math.min(b, rt)));
+      setState("result");
+    }
+  };
+
+  const bg = state === "ready" ? "#2f9e44" : state === "waiting" ? "#c92a2a" : "#2b3557";
+  const label =
+    state === "idle" ? "शुरू करने के लिए दबाएँ"
+    : state === "waiting" ? "हरा होने का इंतज़ार करो..."
+    : state === "ready" ? "अभी दबाओ!"
+    : state === "tooSoon" ? "जल्दी हो गया! फिर कोशिश करो"
+    : `तुम्हारा समय: ${reaction}ms — फिर खेलने के लिए दबाओ`;
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>⚡ Reaction Time</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>Best: {best !== null ? `${best}ms` : "-"}</span>
+      </div>
+      <div
+        onClick={handleClick}
+        style={{
+          marginTop: 12,
+          borderRadius: 14,
+          background: bg,
+          color: "#fff",
+          textAlign: "center",
+          padding: "40px 10px",
+          fontWeight: 700,
+          fontSize: 15,
+          cursor: "pointer",
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// ==================== WHACK-A-MOLE (Reflex IQ) ====================
+function WhackAMoleGame() {
+  const [activeHole, setActiveHole] = useState(-1);
+  const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(20);
+  const [running, setRunning] = useState(false);
+  const [best, setBest] = useState(0);
+  const moleTimeout = React.useRef(null);
+
+  useEffect(() => {
+    if (!running) return;
+    if (timeLeft <= 0) {
+      setRunning(false);
+      setBest((b) => Math.max(b, score));
+      setActiveHole(-1);
+      return;
+    }
+    const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [running, timeLeft, score]);
+
+  useEffect(() => {
+    if (!running) return;
+    const popup = () => {
+      setActiveHole(Math.floor(Math.random() * 9));
+      moleTimeout.current = setTimeout(popup, 550 + Math.random() * 450);
+    };
+    popup();
+    return () => clearTimeout(moleTimeout.current);
+  }, [running]);
+
+  const start = () => {
+    setScore(0);
+    setTimeLeft(20);
+    setRunning(true);
+  };
+
+  const hit = (idx) => {
+    if (idx === activeHole && running) {
+      setScore((s) => s + 1);
+      setActiveHole(-1);
+    }
+  };
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>🦫 Whack-a-Mole</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>Best: {best}</span>
+      </div>
+      {!running ? (
+        <>
+          <p style={{ color: "#a8b3cf", fontSize: 13 }}>20 सेकंड में जितने mole पकड़ सको पकड़ो!</p>
+          <button style={styles.primaryBtn} onClick={start}>शुरू करें</button>
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", margin: "12px 0" }}>
+            <span style={{ color: "var(--accent)", fontWeight: 700 }}>⏱ {timeLeft}s</span>
+            <span style={{ color: "#51cf66", fontWeight: 700 }}>स्कोर: {score}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, maxWidth: 260, margin: "0 auto" }}>
+            {Array.from({ length: 9 }).map((_, idx) => (
+              <div
+                key={idx}
+                onClick={() => hit(idx)}
+                style={{
+                  aspectRatio: "1",
+                  borderRadius: "50%",
+                  background: "#3a2a1a",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 26,
+                  cursor: "pointer",
+                }}
+              >
+                {activeHole === idx ? "🦫" : ""}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ==================== PLAY WITH FRIEND (Tic-Tac-Toe) ====================
+function TicTacToeGame() {
+  const [board, setBoard] = useState(Array(9).fill(null));
+  const [turn, setTurn] = useState("X");
+  const [scoreX, setScoreX] = useState(0);
+  const [scoreO, setScoreO] = useState(0);
+
+  const lines = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8],
+    [0, 3, 6], [1, 4, 7], [2, 5, 8],
+    [0, 4, 8], [2, 4, 6],
+  ];
+
+  const getWinner = (b) => {
+    for (const [a, c, d] of lines) {
+      if (b[a] && b[a] === b[c] && b[a] === b[d]) return b[a];
+    }
+    return b.every((cell) => cell) ? "draw" : null;
+  };
+
+  const winner = getWinner(board);
+
+  const handleClick = (idx) => {
+    if (board[idx] || winner) return;
+    const next = [...board];
+    next[idx] = turn;
+    setBoard(next);
+    const w = getWinner(next);
+    if (w === "X") setScoreX((s) => s + 1);
+    if (w === "O") setScoreO((s) => s + 1);
+    setTurn(turn === "X" ? "O" : "X");
+  };
+
+  const reset = () => {
+    setBoard(Array(9).fill(null));
+    setTurn("X");
+  };
+
+  return (
+    <div style={styles.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ color: "#fff", margin: 0 }}>👫 Play with Friend</h3>
+        <span style={{ color: "#a8b3cf", fontSize: 13 }}>X: {scoreX} · O: {scoreO}</span>
+      </div>
+      <p style={{ color: "#a8b3cf", fontSize: 13 }}>एक ही फ़ोन पर बारी-बारी दोस्त के साथ खेलो</p>
+      {winner && (
+        <div style={{ color: "#51cf66", fontWeight: 700, textAlign: "center", margin: "8px 0" }}>
+          {winner === "draw" ? "🤝 Draw हो गया!" : `🎉 ${winner} जीत गया!`}
+        </div>
+      )}
+      {!winner && (
+        <div style={{ color: "var(--accent)", textAlign: "center", margin: "8px 0", fontWeight: 700 }}>
+          बारी: {turn}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, maxWidth: 240, margin: "10px auto" }}>
+        {board.map((cell, idx) => (
+          <div
+            key={idx}
+            onClick={() => handleClick(idx)}
+            style={{
+              aspectRatio: "1",
+              borderRadius: 10,
+              background: "#1a2140",
+              border: "1px solid #3a4570",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 32,
+              fontWeight: 700,
+              color: cell === "X" ? "var(--accent)" : "#1971c2",
+              cursor: "pointer",
+            }}
+          >
+            {cell}
+          </div>
+        ))}
+      </div>
+      <button style={styles.secondaryBtn} onClick={reset}>नया राउंड</button>
+    </div>
+  );
+}
+
+// ==================== PREMIUM MODAL ====================
+function PremiumModal({ onClose, onPromoRedeem }) {
+  const [promo, setPromo] = useState("");
+  const [msg, setMsg] = useState("");
+
+  return (
+    <div style={styles.overlay}>
+      <div style={styles.modal}>
+        <h3 style={{ color: "#fff", marginTop: 0 }}>⭐ Premium Plans</h3>
+        {PREMIUM_TIERS.map((tier) => (
+          <div
+            key={tier.id}
+            onClick={() => setMsg("Payment अभी connect नहीं हुआ है, इसलिए यह plan अभी activate नहीं हो सकता")}
+            style={{
+              ...styles.card,
+              marginBottom: 10,
+              padding: 14,
+              cursor: "pointer",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div style={{ color: "#fff", fontWeight: 700 }}>{tier.name}</div>
+              <div style={{ color: "#a8b3cf", fontSize: 12 }}>{tier.duration}</div>
+            </div>
+            <div style={{ color: "var(--accent)", fontWeight: 700 }}>{tier.price}</div>
+          </div>
+        ))}
+        {msg && <div style={{ color: "#ffa94d", fontSize: 13, marginBottom: 10 }}>{msg}</div>}
+        <label style={styles.label}>Promo Code</label>
+        <input style={styles.input} value={promo} onChange={(e) => setPromo(e.target.value)} placeholder="कोड डालें" />
+        <button
+          style={styles.primaryBtn}
+          onClick={() => {
+            if (promo.trim().length >= 4) {
+              onPromoRedeem(3);
+              setMsg("🎉 3 दिन का Premium मिल गया!");
+              setPromo("");
+            } else {
+              setMsg("गलत कोड");
+            }
+          }}
+        >
+          कोड लगाएँ
+        </button>
+        <button style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={onClose}>
+          बंद करें
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== DEV MENU ====================
+function DevMenu({ onClose, profile, premium, onGrant, onRevoke }) {
+  const [pass, setPass] = useState("");
+  const [unlocked, setUnlocked] = useState(false);
+  const [error, setError] = useState("");
+
+  const tryUnlock = () => {
+    if (pass.trim().toLowerCase() === DEV_PASSWORD) {
+      setUnlocked(true);
+      setError("");
+    } else {
+      setError("गलत password");
+    }
+  };
+
+  return (
+    <div style={styles.overlay}>
+      <div style={styles.modal}>
+        {!unlocked ? (
+          <>
+            <h3 style={{ color: "#fff", marginTop: 0 }}>🔒 Developer Menu</h3>
+            <input
+              style={styles.input}
+              type="password"
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck="false"
+              placeholder="Password"
+            />
+            {error && <div style={{ color: "#ff8787", fontSize: 13, marginTop: 6 }}>{error}</div>}
+            <button style={styles.primaryBtn} onClick={tryUnlock}>
+              खोलें
+            </button>
+            <button style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={onClose}>
+              बंद करें
+            </button>
+          </>
+        ) : (
+          <>
+            <h3 style={{ color: "#fff", marginTop: 0 }}>🛠️ Developer Panel</h3>
+            <p style={{ color: "#ffa94d", fontSize: 12 }}>
+              यह सिर्फ इस डिवाइस के लिए local control panel है — कोई असली backend नहीं है, इसलिए यह सिर्फ इस profile को manage करता है।
+            </p>
+            <div style={{ color: "#a8b3cf", fontSize: 14, marginBottom: 10 }}>
+              <div>{profile?.avatar || "🦁"} नाम: {profile?.name}</div>
+              <div>मोबाइल: {profile?.mobile}</div>
+              <div>Email: {profile?.email || "नहीं दिया"}</div>
+              <div>Premium: {premium?.active ? `${premium.tier} (${premium.expiry} तक)` : "नहीं है"}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {PREMIUM_TIERS.map((t) => (
+                <button key={t.id} style={styles.secondaryBtn} onClick={() => onGrant(t)}>
+                  {t.name} दें
+                </button>
+              ))}
+            </div>
+            <button style={{ ...styles.primaryBtn, marginTop: 10, background: "#c92a2a" }} onClick={onRevoke}>
+              Premium हटाएँ
+            </button>
+            <button style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={onClose}>
+              बंद करें
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==================== SETTINGS SCREEN ====================
+function SettingsScreen({ onOpenDev, onOpenPremium, premium, exportData, theme, onSetTheme, language, onSetLanguage }) {
+  const [tapCount, setTapCount] = useState(0);
+
+  const handleCreditTap = () => {
+    const next = tapCount + 1;
+    setTapCount(next);
+    if (next >= 5) {
+      setTapCount(0);
+      onOpenDev();
+    }
+  };
+
+  return (
+    <div style={styles.card}>
+      <h3 style={{ color: "#fff", marginTop: 0 }}>⚙️ Settings</h3>
+      <div style={{ color: "#a8b3cf", marginBottom: 14 }}>
+        Premium status: {premium?.active ? `✅ ${premium.tier}` : "❌ नहीं है"}
+      </div>
+      <button style={styles.primaryBtn} onClick={onOpenPremium}>
+        ⭐ Premium देखें
+      </button>
+      <button style={{ ...styles.secondaryBtn, width: "100%", marginTop: 10 }} onClick={exportData}>
+        ⬇️ अपना डेटा डाउनलोड करें (backup)
+      </button>
+      <label style={{ ...styles.label, marginTop: 20 }}>🌐 भाषा / Language</label>
+      <div style={{ display: "flex", gap: 8 }}>
+        {[{ id: "hi", label: "हिंदी" }, { id: "en", label: "English" }].map((l) => (
+          <button
+            key={l.id}
+            onClick={() => onSetLanguage(l.id)}
+            style={{
+              flex: 1,
+              padding: "10px",
+              borderRadius: 10,
+              border: language === l.id ? "2px solid var(--accent)" : "1px solid rgba(255,255,255,0.2)",
+              background: language === l.id ? "rgba(240,140,0,0.1)" : "transparent",
+              color: "#fff",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {l.label}
+          </button>
+        ))}
+      </div>
+      <p style={{ color: "#6b7590", fontSize: 11, marginTop: 6 }}>
+        अभी ये सिर्फ नीचे के menu (tabs) को translate करता है — बाकी app जल्द ही पूरी तरह translate होगी।
+      </p>
+      <label style={{ ...styles.label, marginTop: 12 }}>🎨 App का रंग (Theme)</label>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {THEME_COLORS.map((c) => (
+          <button
+            key={c.value}
+            onClick={() => onSetTheme(c.value)}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              background: c.value,
+              border: theme === c.value ? "3px solid #fff" : "3px solid transparent",
+              cursor: "pointer",
+            }}
+          />
+        ))}
+      </div>
+      <div
+        onClick={handleCreditTap}
+        style={{ marginTop: 30, textAlign: "center", color: "#5c6690", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+      >
+        Created by Mayank <ThunderIcon size={22} />
+      </div>
+    </div>
+  );
+}
+
+// ==================== STATS SCREEN ====================
+function StatsScreen({ habits, completions, totalSpent }) {
+  const today = todayStr();
+  const totalHabits = habits.length;
+  const doneToday = habits.filter((h) => completions[h.id]?.[today]).length;
+  const pct = totalHabits ? Math.round((doneToday / totalHabits) * 100) : 0;
+
+  let bestHabit = null;
+  let bestStreak = 0;
+  habits.forEach((h) => {
+    const s = calcStreak(completions[h.id] || {});
+    if (s > bestStreak) {
+      bestStreak = s;
+      bestHabit = h;
+    }
+  });
+
+  let totalCompletions = 0;
+  Object.values(completions).forEach((c) => {
+    totalCompletions += Object.keys(c).length;
+  });
+
+  const { level, xpIntoLevel } = calcLevel(totalCompletions);
+
+  const earnedAchievements = STREAK_ACHIEVEMENTS.filter((a) => bestStreak >= a.days);
+
+  return (
+    <div>
+      <div style={{ ...styles.card, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: "#fff", fontWeight: 700 }}>⭐ Level {level}</span>
+          <span style={{ color: "#a8b3cf", fontSize: 12 }}>{xpIntoLevel}/100 XP</span>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 8, height: 10, marginTop: 8, overflow: "hidden" }}>
+          <div style={{ width: `${xpIntoLevel}%`, background: "var(--accent)", height: "100%" }} />
+        </div>
+      </div>
+      <div style={{ ...styles.card, marginBottom: 14 }}>
+        <h4 style={{ color: "#fff", marginTop: 0 }}>🎖️ Achievements</h4>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {STREAK_ACHIEVEMENTS.map((a) => {
+            const earned = earnedAchievements.includes(a);
+            return (
+              <div key={a.days} style={{ textAlign: "center", opacity: earned ? 1 : 0.3, width: 65 }}>
+                <div style={{ fontSize: 26 }}>{a.icon}</div>
+                <div style={{ color: "#fff", fontSize: 11 }}>{a.name}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ ...styles.card, marginBottom: 14, textAlign: "center" }}>
+        <div style={{ fontSize: 40, fontWeight: 700, color: "var(--accent)" }}>{pct}%</div>
+        <div style={{ color: "#a8b3cf", fontSize: 13 }}>आज की पूरी हुई आदतें ({doneToday}/{totalHabits})</div>
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
+        <div style={{ ...styles.card, flex: 1, textAlign: "center" }}>
+          <div style={{ fontSize: 24, color: "#fff", fontWeight: 700 }}>{bestStreak}</div>
+          <div style={{ color: "#a8b3cf", fontSize: 12 }}>सबसे लंबी streak</div>
+          {bestHabit && <div style={{ color: bestHabit.color, fontSize: 12, marginTop: 4 }}>{bestHabit.icon} {bestHabit.name}</div>}
+        </div>
+        <div style={{ ...styles.card, flex: 1, textAlign: "center" }}>
+          <div style={{ fontSize: 24, color: "#fff", fontWeight: 700 }}>{totalCompletions}</div>
+          <div style={{ color: "#a8b3cf", fontSize: 12 }}>कुल पूरे किए गए दिन</div>
+        </div>
+      </div>
+      <div style={{ ...styles.card, marginBottom: 14 }}>
+        <h4 style={{ color: "#fff", marginTop: 0 }}>🏅 Medals</h4>
+        <div style={{ color: "#a8b3cf", fontSize: 12, marginBottom: 10 }}>कुल Premium खर्च: ₹{totalSpent}</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {MEDAL_TIERS.map((m) => {
+            const earned = totalSpent >= m.amount;
+            return (
+              <div key={m.id} style={{ textAlign: "center", opacity: earned ? 1 : 0.3, width: 70 }}>
+                <div style={{ fontSize: 30 }}>{m.icon}</div>
+                <div style={{ color: "#fff", fontSize: 11, fontWeight: 600 }}>{m.name}</div>
+                <div style={{ color: "#6b7590", fontSize: 10 }}>₹{m.amount}+</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={styles.card}>
+        <h4 style={{ color: "#fff", marginTop: 0 }}>हर आदत की streak</h4>
+        {habits.map((h) => (
+          <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <span style={{ color: "#a8b3cf" }}>{h.icon} {h.name}</span>
+            <span style={{ color: h.color, fontWeight: 700 }}>🔥 {calcStreak(completions[h.id] || {})}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const DAILY_CHALLENGES = [
+  "5 नए शब्दों के meaning सीखो और उन्हें एक वाक्य में इस्तेमाल करो",
+  "बिना फ़ोन देखे 20 मिनट पढ़ाई करो",
+  "किसी को आज एक तारीफ़ (compliment) दो",
+  "10 मिनट टहलो या स्ट्रेच करो",
+  "आज कुछ नया बनाना या draw करना try करो",
+  "अपने कमरे को 10 मिनट में साफ करो",
+  "किसी किताब के 10 पन्ने पढ़ो",
+  "आज बिना शिकायत किए पूरा दिन बिताओ",
+  "किसी दोस्त या family member की मदद करो",
+  "अपने कल के लिए एक छोटा लक्ष्य लिखो",
+  "5 मिनट आँखें बंद करके गहरी साँस लो",
+  "आज कुछ नया सवाल पूछो और उसका जवाब खोजो",
+];
+
+function todaysChallenge() {
+  const dayIndex = Math.floor(Date.now() / 86400000);
+  return DAILY_CHALLENGES[dayIndex % DAILY_CHALLENGES.length];
+}
+
+// ==================== DAILY JOURNAL ====================
+function JournalScreen({ entries, onSave }) {
+  const today = todayStr();
+  const [text, setText] = useState(entries[today] || "");
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    onSave(today, text);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  const pastEntries = Object.keys(entries)
+    .filter((d) => d !== today && entries[d]?.trim())
+    .sort((a, b) => (a < b ? 1 : -1))
+    .slice(0, 10);
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <h3 style={{ color: "#fff", marginTop: 0 }}>📝 आज की Journal</h3>
+        <p style={{ color: "#a8b3cf", fontSize: 12 }}>आज क्या सीखा, क्या महसूस किया — कुछ भी लिखो। रोज़ लिखने से writing सुधरती है।</p>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={7}
+          style={{ ...styles.input, resize: "vertical", fontFamily: "inherit" }}
+          placeholder="यहाँ लिखना शुरू करो..."
+        />
+        <button style={styles.primaryBtn} onClick={save}>
+          {saved ? "✅ सेव हो गया" : "सेव करें"}
+        </button>
+      </div>
+      {pastEntries.length > 0 && (
+        <div style={{ ...styles.card, marginTop: 14 }}>
+          <h4 style={{ color: "#fff", marginTop: 0 }}>पुरानी Entries</h4>
+          {pastEntries.map((d) => (
+            <div key={d} style={{ padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 700 }}>{d}</div>
+              <div style={{ color: "#a8b3cf", fontSize: 13, marginTop: 2 }}>{entries[d]}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== STUDY TIMER (Pomodoro) ====================
+function StudyTimerScreen() {
+  const [studyMin, setStudyMin] = useState(25);
+  const [breakMin, setBreakMin] = useState(5);
+  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
+  const [mode, setMode] = useState("study"); // study | break
+  const [running, setRunning] = useState(false);
+  const [rounds, setRounds] = useState(0);
+
+  useEffect(() => {
+    if (!running) return;
+    if (secondsLeft <= 0) {
+      if (mode === "study") {
+        setRounds((r) => r + 1);
+        setMode("break");
+        setSecondsLeft(breakMin * 60);
+      } else {
+        setMode("study");
+        setSecondsLeft(studyMin * 60);
+      }
+      return;
+    }
+    const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [running, secondsLeft, mode, studyMin, breakMin]);
+
+  const mm = Math.floor(secondsLeft / 60).toString().padStart(2, "0");
+  const ss = (secondsLeft % 60).toString().padStart(2, "0");
+
+  const reset = (newStudy = studyMin, newBreak = breakMin) => {
+    setRunning(false);
+    setMode("study");
+    setSecondsLeft(newStudy * 60);
+    setStudyMin(newStudy);
+    setBreakMin(newBreak);
+  };
+
+  return (
+    <div style={styles.card}>
+      <h3 style={{ color: "#fff", marginTop: 0 }}>⏱️ Study Timer</h3>
+      <div style={{ textAlign: "center", margin: "20px 0" }}>
+        <div style={{ color: mode === "study" ? "var(--accent)" : "#51cf66", fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+          {mode === "study" ? "📖 पढ़ाई का समय" : "☕ ब्रेक टाइम"}
+        </div>
+        <div style={{ fontSize: 48, color: "#fff", fontWeight: 700, fontFamily: "monospace" }}>{mm}:{ss}</div>
+        <div style={{ color: "#a8b3cf", fontSize: 12, marginTop: 6 }}>पूरे राउंड: {rounds}</div>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+        <button style={styles.primaryBtn} onClick={() => setRunning((r) => !r)}>
+          {running ? "रोकें" : "शुरू करें"}
+        </button>
+      </div>
+      <button style={{ ...styles.secondaryBtn, width: "100%", marginBottom: 14 }} onClick={() => reset()}>
+        फिर से शुरू करें
+      </button>
+      {!running && (
+        <div>
+          <label style={styles.label}>पढ़ाई (मिनट)</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[15, 25, 45, 60].map((m) => (
+              <button
+                key={m}
+                onClick={() => reset(m, breakMin)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: studyMin === m ? "2px solid var(--accent)" : "1px solid rgba(255,255,255,0.2)",
+                  background: "transparent",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          <label style={styles.label}>ब्रेक (मिनट)</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[5, 10, 15].map((m) => (
+              <button
+                key={m}
+                onClick={() => reset(studyMin, m)}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: breakMin === m ? "2px solid var(--accent)" : "1px solid rgba(255,255,255,0.2)",
+                  background: "transparent",
+                  color: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== BOOKS SCREEN ====================
+function BooksScreen({ readStatus, onSetStatus }) {
+  const [filter, setFilter] = useState("all");
+  const categories = ["all", ...new Set(BOOK_LIST.map((b) => b.category))];
+
+  const visible = filter === "all" ? BOOK_LIST : BOOK_LIST.filter((b) => b.category === filter);
+
+  const statusLabel = { unread: "पढ़नी है", reading: "पढ़ रहा हूँ", done: "पढ़ ली ✅" };
+  const statusColor = { unread: "#6b7590", reading: "var(--accent)", done: "#51cf66" };
+
+  const readCount = BOOK_LIST.filter((b) => readStatus[b.id] === "done").length;
+
+  return (
+    <div>
+      <div style={{ ...styles.card, marginBottom: 14, textAlign: "center" }}>
+        <div style={{ fontSize: 30, fontWeight: 700, color: "var(--accent)" }}>{readCount}/{BOOK_LIST.length}</div>
+        <div style={{ color: "#a8b3cf", fontSize: 13 }}>किताबें पूरी पढ़ी</div>
+      </div>
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 14, paddingBottom: 4 }}>
+        {categories.map((cat) => (
+          <div
+            key={cat}
+            onClick={() => setFilter(cat)}
+            style={{
+              whiteSpace: "nowrap",
+              padding: "7px 12px",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              background: filter === cat ? "var(--accent)" : "rgba(255,255,255,0.06)",
+              color: filter === cat ? "#1a1300" : "#a8b3cf",
+            }}
+          >
+            {cat === "all" ? "सभी" : cat}
+          </div>
+        ))}
+      </div>
+      {visible.map((book) => {
+        const status = readStatus[book.id] || "unread";
+        return (
+          <div key={book.id} style={{ ...styles.card, marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ fontSize: 30 }}>{book.icon}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>{book.title}</div>
+                <div style={{ color: "#a8b3cf", fontSize: 12, marginBottom: 4 }}>{book.author} · {book.category}</div>
+                <div style={{ color: "#a8b3cf", fontSize: 12.5, lineHeight: 1.5 }}>{book.blurb}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+              {["unread", "reading", "done"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => onSetStatus(book.id, s)}
+                  style={{
+                    flex: 1,
+                    padding: "7px",
+                    borderRadius: 8,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    border: status === s ? `1px solid ${statusColor[s]}` : "1px solid rgba(255,255,255,0.15)",
+                    background: status === s ? `${statusColor[s]}22` : "transparent",
+                    color: status === s ? statusColor[s] : "#6b7590",
+                    cursor: "pointer",
+                  }}
+                >
+                  {statusLabel[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ==================== MAIN APP ====================
+export default function App() {
+  const [loaded, setLoaded] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [habits, setHabits] = useState(DEFAULT_HABITS);
+  const [completions, setCompletions] = useState({}); // { habitId: { dateStr: true } }
+  const [premium, setPremium] = useState({ active: false, tier: null, expiry: null });
+  const [totalSpent, setTotalSpent] = useState(0);
+  const [bookStatus, setBookStatusState] = useState({});
+  const [journal, setJournal] = useState({});
+  const [theme, setTheme] = useState("#f08c00");
+  const [language, setLanguage] = useState("hi");
+  const [challengeDoneMap, setChallengeDoneMap] = useState({});
+  const [tab, setTab] = useState("habits");
+  const [gameFilter, setGameFilter] = useState("all");
+  const [showAddHabit, setShowAddHabit] = useState(false);
+  const [showPremium, setShowPremium] = useState(false);
+  const [showDev, setShowDev] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const p = await loadState("fh_profile", null);
+      const h = await loadState("fh_habits", DEFAULT_HABITS);
+      const c = await loadState("fh_completions", {});
+      const pr = await loadState("fh_premium", { active: false, tier: null, expiry: null });
+      const spent = await loadState("fh_total_spent", 0);
+      const books = await loadState("fh_book_status", {});
+      const journalData = await loadState("fh_journal", {});
+      const themeColor = await loadState("fh_theme", "#f08c00");
+      const lang = await loadState("fh_language", "hi");
+      const challengeData = await loadState("fh_challenge_done", {});
+      setProfile(p);
+      setHabits(h);
+      setCompletions(c);
+      setPremium(pr);
+      setTotalSpent(spent);
+      setBookStatusState(books);
+      setJournal(journalData);
+      setTheme(themeColor);
+      setLanguage(lang);
+      setChallengeDoneMap(challengeData);
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (loaded) saveState("fh_habits", habits);
+  }, [habits, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_completions", completions);
+  }, [completions, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_premium", premium);
+  }, [premium, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_total_spent", totalSpent);
+  }, [totalSpent, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_book_status", bookStatus);
+  }, [bookStatus, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_journal", journal);
+  }, [journal, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_theme", theme);
+  }, [theme, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_language", language);
+  }, [language, loaded]);
+  useEffect(() => {
+    if (loaded) saveState("fh_challenge_done", challengeDoneMap);
+  }, [challengeDoneMap, loaded]);
+
+  const toggleToday = (habitId) => {
+    setCompletions((prev) => {
+      const habitData = { ...(prev[habitId] || {}) };
+      const key = todayStr();
+      if (habitData[key]) delete habitData[key];
+      else habitData[key] = true;
+      return { ...prev, [habitId]: habitData };
+    });
+  };
+
+  const addHabit = (habit) => {
+    setHabits((prev) => [...prev, habit]);
+  };
+
+  const deleteHabit = (habitId) => {
+    setHabits((prev) => prev.filter((h) => h.id !== habitId));
+    setCompletions((prev) => {
+      const copy = { ...prev };
+      delete copy[habitId];
+      return copy;
+    });
+  };
+
+  const grantPremium = (tier) => {
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + tier.days);
+    setPremium({ active: true, tier: tier.name, expiry: toDateStr(expiry) });
+    const numericPrice = parseInt(tier.price.replace(/[^\d]/g, ""), 10) || 0;
+    setTotalSpent((s) => s + numericPrice);
+  };
+
+  const revokePremium = () => setPremium({ active: false, tier: null, expiry: null });
+
+  const redeemPromo = (days) => {
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + days);
+    setPremium({ active: true, tier: "Promo", expiry: toDateStr(expiry) });
+  };
+
+  const exportData = () => {
+    const backup = { profile, habits, completions, premium, totalSpent, bookStatus, journal, theme, language, challengeDoneMap, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "future-holders-twg-backup.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const setBookStatus = (bookId, status) => {
+    setBookStatusState((prev) => ({ ...prev, [bookId]: status }));
+  };
+
+  const saveJournal = (date, text) => {
+    setJournal((prev) => ({ ...prev, [date]: text }));
+  };
+
+  const challengeDone = !!challengeDoneMap[todayStr()];
+  const toggleChallengeDone = () => {
+    setChallengeDoneMap((prev) => ({ ...prev, [todayStr()]: !prev[todayStr()] }));
+  };
+
+  if (!loaded) {
+    return (
+      <div style={styles.screen}>
+        <div style={{ color: "#a8b3cf", textAlign: "center", marginTop: 100 }}>लोड हो रहा है...</div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return <SignupScreen onDone={(p) => setProfile(p)} />;
+  }
+
+  const festival = isFestivalToday();
+
+  return (
+    <div style={{ ...styles.screen, "--accent": theme }}>
+      <div style={{ padding: "20px 16px 100px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Logo size={32} />
+            <h2 style={{ color: "#fff", margin: 0 }}>Future Holders TWG</h2>
+          </div>
+          <div style={{ fontSize: 26 }}>{profile.avatar || "🦁"}</div>
+        </div>
+        {(premium.active || festival) && (
+          <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 700, marginBottom: 14 }}>
+            {festival ? "🎉 त्योहार offer — आज सबके लिए Premium फ्री!" : `⭐ ${premium.tier} Premium सक्रिय है`}
+          </div>
+        )}
+
+        {tab === "habits" && (
+          <>
+            <div style={{ ...styles.card, marginBottom: 14, borderLeft: "3px solid var(--accent)" }}>
+              <div style={{ color: "#a8b3cf", fontSize: 13, fontStyle: "italic" }}>
+                "{QUOTES[new Date().getDate() % QUOTES.length]}"
+              </div>
+            </div>
+            <div style={{ ...styles.card, marginBottom: 14, background: "rgba(240,140,0,0.08)", border: "1px solid rgba(240,140,0,0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 700 }}>🎯 आज की Challenge</div>
+                <div
+                  onClick={toggleChallengeDone}
+                  style={{
+                    width: 24, height: 24, borderRadius: "50%",
+                    border: "2px solid var(--accent)",
+                    background: challengeDone ? "var(--accent)" : "transparent",
+                    color: "#fff", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+                  }}
+                >
+                  {challengeDone ? "✓" : ""}
+                </div>
+              </div>
+              <div style={{ color: "#fff", fontSize: 14, marginTop: 6, textDecoration: challengeDone ? "line-through" : "none", opacity: challengeDone ? 0.6 : 1 }}>
+                {todaysChallenge()}
+              </div>
+            </div>
+            {habits.map((h) => (
+              <HabitCard
+                key={h.id}
+                habit={h}
+                completions={completions[h.id] || {}}
+                onToggleToday={toggleToday}
+                onDelete={deleteHabit}
+              />
+            ))}
+            <button style={{ ...styles.secondaryBtn, width: "100%" }} onClick={() => setShowAddHabit(true)}>
+              + नई आदत जोड़ें
+            </button>
+          </>
+        )}
+
+        {tab === "games" && (
+          <>
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
+              {GAME_CATEGORIES.map((cat) => (
+                <div
+                  key={cat.id}
+                  onClick={() => setGameFilter(cat.id)}
+                  style={{
+                    whiteSpace: "nowrap",
+                    padding: "8px 14px",
+                    borderRadius: 20,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    background: gameFilter === cat.id ? "var(--accent)" : "rgba(255,255,255,0.06)",
+                    color: gameFilter === cat.id ? "#1a1300" : "#a8b3cf",
+                  }}
+                >
+                  {cat.icon} {cat.label}
+                </div>
+              ))}
+            </div>
+            {(gameFilter === "all" || gameFilter === "logic") && <><LogicPatternGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "memory") && <><MemoryGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "memory") && <><SequenceMemoryGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "puzzle") && <><PuzzleGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "math") && <><MathBlitzGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "word") && <><WordScrambleGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "reflex") && <><ReactionTimeGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "reflex") && <><WhackAMoleGame /><div style={{ height: 16 }} /></>}
+            {(gameFilter === "all" || gameFilter === "friend") && <><TicTacToeGame /><div style={{ height: 16 }} /></>}
+          </>
+        )}
+
+        {tab === "timer" && <StudyTimerScreen />}
+
+        {tab === "journal" && <JournalScreen entries={journal} onSave={saveJournal} />}
+
+        {tab === "books" && <BooksScreen readStatus={bookStatus} onSetStatus={setBookStatus} />}
+
+        {tab === "stats" && <StatsScreen habits={habits} completions={completions} totalSpent={totalSpent} />}
+
+        {tab === "settings" && (
+          <SettingsScreen
+            onOpenDev={() => setShowDev(true)}
+            onOpenPremium={() => setShowPremium(true)}
+            premium={premium}
+            exportData={exportData}
+            theme={theme}
+            onSetTheme={setTheme}
+            language={language}
+            onSetLanguage={setLanguage}
+          />
+        )}
+      </div>
+
+      {/* Bottom nav */}
+      <div style={styles.bottomNav}>
+        {[
+          { id: "habits", label: LANG_LABELS[language].habits, icon: "✅" },
+          { id: "timer", label: LANG_LABELS[language].timer, icon: "⏱️" },
+          { id: "journal", label: LANG_LABELS[language].journal, icon: "📝" },
+          { id: "books", label: LANG_LABELS[language].books, icon: "📚" },
+          { id: "stats", label: LANG_LABELS[language].stats, icon: "📊" },
+          { id: "games", label: LANG_LABELS[language].games, icon: "🎮" },
+          { id: "settings", label: LANG_LABELS[language].settings, icon: "⚙️" },
+        ].map((t) => (
+          <div
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              flex: "0 0 auto",
+              minWidth: 64,
+              textAlign: "center",
+              padding: "10px 6px",
+              color: tab === t.id ? "var(--accent)" : "#6b7590",
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ fontSize: 18 }}>{t.icon}</div>
+            <div style={{ fontSize: 10 }}>{t.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {showAddHabit && <AddHabitModal onClose={() => setShowAddHabit(false)} onAdd={addHabit} />}
+      {showPremium && <PremiumModal onClose={() => setShowPremium(false)} onPromoRedeem={redeemPromo} />}
+      {showDev && (
+        <DevMenu
+          onClose={() => setShowDev(false)}
+          profile={profile}
+          premium={premium}
+          onGrant={grantPremium}
+          onRevoke={revokePremium}
+        />
+      )}
+    </div>
+  );
+}
+
+// ==================== STYLES ====================
+const styles = {
+  screen: {
+    minHeight: "100vh",
+    background: "linear-gradient(180deg, #0f1428 0%, #161d3d 100%)",
+    fontFamily: "'Noto Sans Devanagari', 'Segoe UI', sans-serif",
+    position: "relative",
+  },
+  card: {
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 16,
+    padding: 16,
+  },
+  label: {
+    color: "#a8b3cf",
+    fontSize: 13,
+    display: "block",
+    marginBottom: 6,
+    marginTop: 12,
+  },
+  input: {
+    width: "100%",
+    padding: "12px 14px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.15)",
+    background: "rgba(255,255,255,0.06)",
+    color: "#fff",
+    fontSize: 15,
+    boxSizing: "border-box",
+    outline: "none",
+  },
+  primaryBtn: {
+    width: "100%",
+    padding: "13px",
+    borderRadius: 10,
+    border: "none",
+    background: "var(--accent)",
+    color: "#1a1300",
+    fontWeight: 700,
+    fontSize: 15,
+    marginTop: 16,
+    cursor: "pointer",
+  },
+  secondaryBtn: {
+    flex: 1,
+    padding: "12px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.2)",
+    background: "transparent",
+    color: "#fff",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: "pointer",
+  },
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.6)",
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    zIndex: 100,
+  },
+  modal: {
+    background: "#161d3d",
+    borderRadius: "20px 20px 0 0",
+    padding: 20,
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "85vh",
+    overflowY: "auto",
+    boxSizing: "border-box",
+  },
+  bottomNav: {
+    position: "fixed",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    display: "flex",
+    overflowX: "auto",
+    background: "#0d1226",
+    borderTop: "1px solid rgba(255,255,255,0.08)",
+  },
+};
